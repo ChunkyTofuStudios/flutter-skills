@@ -1,6 +1,6 @@
 ---
 name: design-polish
-description: Polish Flutter app UI screens for visual hierarchy, readability, and section clarity. First reads a representative reference screen (the home page or a polished page the user points at) to lock in the app's existing design tone, then drives the running app on the Android emulator via the `android-emulator` skill — screenshots, taps, swipes — to observe each target screen, makes targeted widget and `ThemeData` changes, and spawns an independent evaluator sub-agent to score the result on design quality, originality, craft, and functionality. Use this skill whenever the user wants to improve, polish, refine, critique, audit, or tighten the visual design of a Flutter screen — even when they don't say "polish" explicitly (e.g. "make this look better", "fix the layout on settings", "tighten up the home screen", "this screen feels off").
+description: Polish a Flutter app's screens — visual hierarchy, typography, color and contrast, spacing, section clarity. Reads a reference screen first to lock in the app's existing design tone, then drives the running app on an Android emulator via the `android-emulator` skill (screenshots, taps, swipes), makes targeted widget and `ThemeData` edits, and spawns an independent evaluator sub-agent to score design quality, originality, craft, and functionality. Use this skill whenever the user wants to improve, polish, refine, critique, audit, or tighten the visual design of a Flutter screen — even when they don't say "polish" (e.g. "make this look better", "fix the layout on settings", "tighten up the home screen", "this screen feels off", "review the UI", "design pass", "make it less generic", "feels too Material default"). Skip for non-Flutter UIs, feature work, or routing/functionality changes.
 license: MIT
 metadata:
   author: Chunky Tofu Studios
@@ -58,7 +58,7 @@ Use the design tone you established above as your north star. Pull concrete cons
 
 **Fonts.** Identify the families used in `theme.textTheme` (often via `google_fonts`, `flutter_fonts`, or asset-bundled `.ttf`s in `pubspec.yaml`). Don't add new fonts. Missing typographic tokens (e.g. an unused `labelSmall`) must be wired through `ThemeData` and applied consistently — no inline `TextStyle(...)` literals.
 
-**Colors.** Use existing `ColorScheme` tokens. You may add up to 2 new semantic tokens (e.g. `success`, `warning`) — wire them through a `ThemeExtension` (Flutter's mechanism for adding theme fields beyond `ColorScheme`'s built-ins) and apply them across every screen you touch. No one-off hex literals scattered through widgets.
+**Colors.** Use existing `ColorScheme` tokens. You may add up to 2 new semantic tokens (e.g. `success`, `warning`) via a `ThemeExtension`, applied across every screen you touch in this session. No one-off hex literals scattered through widgets.
 
 **Components.** Reuse existing custom widgets in `lib/widgets/` or `lib/components/` where they exist. For Material-based apps, prefer SDK widgets (`FilledButton`, `Card`, `ListTile`, etc.) over rolling your own; for apps with a strong custom widget library (common in games and heavily-branded utility apps), match the existing pattern instead of introducing stock Material widgets that will look out of place. Small utility packages are fine; don't pull in a new component library mid-polish.
 
@@ -153,7 +153,7 @@ VERDICT: PASS/ITERATE/FAIL
 ### 5. React to verdict
 
 - **PASS:** Move to the next screen.
-- **ITERATE:** Address the evaluator's specific critique — don't re-diagnose from scratch. Return to step 2.
+- **ITERATE:** Treat the evaluator's critique as your new diagnosis — don't re-diagnose from scratch. Return to step 3 (Fix).
 - **FAIL:** Consider reverting to "before" and trying a completely different approach.
 - Max 3 evaluation rounds per screen. At the cap, keep the best-scoring version.
 
@@ -196,6 +196,13 @@ These are slop in any context — game, utility, productivity, or otherwise:
 - "Would someone scrolling past this say it looks AI-generated?"
 
 If yes to either, undo it.
+
+## Gotchas
+
+- **`ThemeData` and hot reload don't always agree.** Edits to `ThemeData`, `ColorScheme`, or `TextTheme` frequently fail to propagate via hot reload — widgets render with stale colors or typography until a full restart. When a theme change "doesn't show up", run the kill-run/run cycle before debugging the edit.
+- **`google_fonts` falls back silently.** With no network or a cold build cache, `google_fonts` substitutes the system default and your typography looks generic. If text suddenly looks wrong after a font change, verify the device has connectivity and rebuild before iterating.
+- **Status-bar chrome contaminates before/after diffs.** The clock, battery, and notification icons differ between captures. Compare the app surface, not the chrome — and ignore status-bar pixels when judging change.
+- **Inline `TextStyle(...)` is the usual culprit for "inconsistency".** When a screen reads as off-tone, search the widget for inline `TextStyle`, `Color(0x...)`, and hard-coded `EdgeInsets` literals before touching the theme — the theme is often fine; the widgets are bypassing it.
 
 ## Process rules
 
