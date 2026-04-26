@@ -23,7 +23,7 @@ The rest of this doc is just the conventions specific to *this* repo.
 license: MIT
 metadata:
   author: Chunky Tofu Studios
-  source: https://github.com/chunkytofustudios/skills
+  source: https://github.com/chunkytofustudios/flutter-skills
 ```
 
 `license: MIT` ensures consumers who pull a skill standalone still see the [repo license](LICENSE). `metadata.source` lets them find updates.

@@ -4,7 +4,7 @@ description: Run, debug, screenshot, and interact with a Flutter app on a runnin
 license: MIT
 metadata:
   author: Chunky Tofu Studios
-  source: https://github.com/chunkytofustudios/skills
+  source: https://github.com/chunkytofustudios/flutter-skills
 ---
 
 # Android emulator (Flutter)

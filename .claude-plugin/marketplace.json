@@ -14,8 +14,8 @@
       "source": "./",
       "skills": ["./skills/android-emulator"],
       "license": "MIT",
-      "homepage": "https://github.com/chunkytofustudios/skills",
-      "repository": "https://github.com/chunkytofustudios/skills",
+      "homepage": "https://github.com/chunkytofustudios/flutter-skills",
+      "repository": "https://github.com/chunkytofustudios/flutter-skills",
       "category": "development",
       "keywords": ["flutter", "android", "emulator", "adb", "qa", "screenshots"],
       "author": {
@@ -28,8 +28,8 @@
       "source": "./",
       "skills": ["./skills/design-polish"],
       "license": "MIT",
-      "homepage": "https://github.com/chunkytofustudios/skills",
-      "repository": "https://github.com/chunkytofustudios/skills",
+      "homepage": "https://github.com/chunkytofustudios/flutter-skills",
+      "repository": "https://github.com/chunkytofustudios/flutter-skills",
       "category": "development",
       "keywords": ["flutter", "design", "ui", "polish", "visual", "hierarchy"],
       "author": {

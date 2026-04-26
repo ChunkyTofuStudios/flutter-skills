@@ -4,7 +4,7 @@ description: Polish a Flutter app's screens — visual hierarchy, typography, co
 license: MIT
 metadata:
   author: Chunky Tofu Studios
-  source: https://github.com/chunkytofustudios/skills
+  source: https://github.com/chunkytofustudios/flutter-skills
 ---
 
 # Design polish (Flutter)

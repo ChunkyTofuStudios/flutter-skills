@@ -23,22 +23,22 @@ Use [skills.sh](https://skills.sh) — the open agent-skills package manager —
 
 ```bash
 # Install everything in this repo
-npx skills add chunkytofustudios/skills
+npx skills add chunkytofustudios/flutter-skills
 
 # Or just one skill
-npx skills add chunkytofustudios/skills --skill android-emulator
+npx skills add chunkytofustudios/flutter-skills --skill android-emulator
 ```
 
 `npx skills` auto-detects the agents you have set up (Claude Code, Cursor, GitHub Copilot in VS Code, OpenAI Codex, Cline, Windsurf, and 40+ others) and writes the skill into the right place — e.g. `.claude/skills/android-emulator/` for Claude Code or `.agents/skills/android-emulator/` for VS Code. Pin a target with `-a`:
 
 ```bash
-npx skills add chunkytofustudios/skills --agent claude-code
+npx skills add chunkytofustudios/flutter-skills --agent claude-code
 ```
 
 Install globally for all your projects with `-g`:
 
 ```bash
-npx skills add chunkytofustudios/skills --global
+npx skills add chunkytofustudios/flutter-skills --global
 ```
 
 Other useful commands:
@@ -49,14 +49,14 @@ npx skills update                # pull the latest version of installed skills
 npx skills remove android-emulator
 ```
 
-Browse this repo's skills on [skills.sh/chunkytofustudios/skills](https://skills.sh/chunkytofustudios/skills).
+Browse this repo's skills on [skills.sh/chunkytofustudios/flutter-skills](https://skills.sh/chunkytofustudios/flutter-skills).
 
 ### Install via Claude Code plugins
 
 This repo doubles as a [Claude Code plugin marketplace](https://docs.claude.com/en/docs/claude-code/plugins), so [Claude Code](https://claude.com/claude-code) users can install skills directly without `npx skills`. Inside Claude Code:
 
 ```text
-/plugin marketplace add chunkytofustudios/skills
+/plugin marketplace add chunkytofustudios/flutter-skills
 /plugin install android-emulator@chunkytofustudios
 ```
 
