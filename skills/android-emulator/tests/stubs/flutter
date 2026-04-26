@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Stubbed `flutter`. Logs args, then sleeps so the `run` dispatch's nohup-bg
+# child stays alive long enough for tests to inspect the pidfile.
+set -u
+echo "flutter $*" >> "${STUB_LOG:-/dev/null}"
+# Sleep just long enough that `run` tests can read the pidfile and
+# (optionally) `kill` the process. Subsequent emu_teardown removes TEST_TMP
+# regardless. Keep small so a forgotten kill doesn't leak for long.
+exec sleep 5

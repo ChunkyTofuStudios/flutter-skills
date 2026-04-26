@@ -103,10 +103,30 @@ teardown() { emu_teardown; }
   [ "$status" -ne 0 ]
 }
 
-@test "kill-run runs pkill and force-stops the app" {
+@test "kill-run falls back to pkill when no pidfile is present" {
   ANDROID_EMU_PKG=com.example.demo run_emu kill-run
   [ "$status" -eq 0 ]
   assert_called "pkill -f"
+  assert_called "am force-stop com.example.demo"
+}
+
+@test "kill-run targets the pidfile-recorded daemon and skips pkill" {
+  # Use the real /bin/sleep so we get a live pid the script can actually signal.
+  # The stubbed `sleep` on PATH returns immediately and would never produce one.
+  /bin/sleep 30 &
+  live_pid=$!
+  echo "$live_pid" > "$TEST_TMP/android-emu-flutter-bats.log.pid"
+
+  ANDROID_EMU_PKG=com.example.demo run_emu kill-run
+  [ "$status" -eq 0 ]
+
+  # Pidfile cleared on success.
+  [ ! -f "$TEST_TMP/android-emu-flutter-bats.log.pid" ]
+  # Process is dead. wait reaps it; if it was never killed, this would block.
+  wait "$live_pid" 2>/dev/null || true
+  ! kill -0 "$live_pid" 2>/dev/null
+
+  refute_called "pkill -f"
   assert_called "am force-stop com.example.demo"
 }
 
@@ -144,14 +164,14 @@ teardown() { emu_teardown; }
 # --- wait-run ----------------------------------------------------------------
 
 @test "wait-run exits 0 when flutter reports the app attached" {
-  echo "Flutter run key commands." > "$TEST_TMP/android-emu-flutter.log"
+  echo "Flutter run key commands." > "$TEST_TMP/android-emu-flutter-bats.log"
   run_emu wait-run
   [ "$status" -eq 0 ]
   [[ "$output" == *"flutter run attached"* ]]
 }
 
 @test "wait-run exits 1 and prints the error line on Gradle failure" {
-  printf 'building...\nGradle build failed: oh no\n' > "$TEST_TMP/android-emu-flutter.log"
+  printf 'building...\nGradle build failed: oh no\n' > "$TEST_TMP/android-emu-flutter-bats.log"
   run_emu wait-run
   [ "$status" -ne 0 ]
   [[ "$output" == *"Gradle build failed"* ]]
@@ -160,7 +180,7 @@ teardown() { emu_teardown; }
 # --- log ---------------------------------------------------------------------
 
 @test "log tails the flutter daemon log with a default of 50 lines" {
-  for i in $(seq 1 100); do echo "line $i"; done > "$TEST_TMP/android-emu-flutter.log"
+  for i in $(seq 1 100); do echo "line $i"; done > "$TEST_TMP/android-emu-flutter-bats.log"
   run_emu log
   [ "$status" -eq 0 ]
   [[ "$output" == *"line 100"* ]]
@@ -169,9 +189,38 @@ teardown() { emu_teardown; }
 }
 
 @test "log respects a custom line count argument" {
-  for i in $(seq 1 100); do echo "line $i"; done > "$TEST_TMP/android-emu-flutter.log"
+  for i in $(seq 1 100); do echo "line $i"; done > "$TEST_TMP/android-emu-flutter-bats.log"
   run_emu log 5
   [ "$status" -eq 0 ]
   [[ "$output" == *"line 96"* ]]
   [[ "$output" != *"line 95"* ]]
+}
+
+@test "log -f forwards the follow flag to tail" {
+  for i in $(seq 1 5); do echo "line $i"; done > "$TEST_TMP/android-emu-flutter-bats.log"
+  run_emu log -f 3
+  [ "$status" -eq 0 ]
+  # The tail stub records the args before the -f passthrough exits, so we can
+  # verify both `-f` and the requested line count were forwarded.
+  assert_called "tail -n 3 -f"
+  [[ "$output" == *"line 5"* ]]
+}
+
+# --- run + pidfile -----------------------------------------------------------
+
+@test "run writes the spawned daemon pid to <log>.pid" {
+  proj=$(make_flutter_project demo gradle com.example.demo)
+  cd "$proj"
+  run_emu run
+  [ "$status" -eq 0 ]
+  [ -f "$TEST_TMP/android-emu-flutter-bats.log.pid" ]
+  pid=$(cat "$TEST_TMP/android-emu-flutter-bats.log.pid")
+  [[ "$pid" =~ ^[0-9]+$ ]]
+  # The flutter stub runs in the background after `run` returns — wait until it
+  # has logged its invocation before asserting (or give up after ~1s).
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    grep -F "flutter run -d emulator-5554" "$STUB_LOG" >/dev/null 2>&1 && break
+    /bin/sleep 0.1
+  done
+  assert_called "flutter run -d emulator-5554"
 }

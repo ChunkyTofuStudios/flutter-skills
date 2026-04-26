@@ -51,10 +51,10 @@ scripts/emu.sh ui-list     # see what's on screen — start here, not screenshot
 |---|---|
 | `launch` | `monkey`-launch the already-installed APK (no rebuild). |
 | `stop` | `am force-stop` the app. |
-| `run` | Start `flutter run -d <device>` in background. Log: `/tmp/android-emu-flutter.log`. Truncates the log each call. Uses `fvm flutter` when the project has a `.fvm/` directory and `fvm` is on `PATH`. |
+| `run` | Start `flutter run -d <device>` in background. Log: `/tmp/android-emu-flutter-<id>.log` (where `<id>` is `ANDROID_EMU_TMP_ID`, default `$$`). Truncates the log each call and writes the daemon pid to `<log>.pid`. Uses `fvm flutter` when the project has a `.fvm/` directory and `fvm` is on `PATH`. |
 | `wait-run` | Block until the log contains `Flutter run key commands.` (attached) or a build failure marker. 180s timeout (`ANDROID_EMU_WAIT_SECS` to override). Exit 0 on success, 1 on error/timeout. **Always pair `run` with `wait-run` instead of `sleep`.** |
-| `kill-run` | Kill the flutter daemon and force-stop the app. The only way to stop a backgrounded `flutter run`, since stdin is gone. |
-| `log [N]` | Tail last N lines of `/tmp/android-emu-flutter.log` (default 50). |
+| `kill-run` | Kill the flutter daemon and force-stop the app. Reads the pid from `<log>.pid` so concurrent agents driving different devices don't clobber each other; falls back to `pkill -f flutter_tools.snapshot` when the pidfile is missing. The only way to stop a backgrounded `flutter run`, since stdin is gone. |
+| `log [-f] [N]` | Tail last N lines (default 50) of the per-invocation log. With `-f`, follow the file like `tail -f`. Pipe through `grep` to filter by severity — see [Filtering logs by severity](#filtering-logs-by-severity). |
 
 ### Input — coordinate-based (all coords in screenshot pixels, 360-wide space)
 
@@ -94,6 +94,25 @@ Example `ui-list` output:
 ```
 
 Then `tap-label "Search"` — substring match is enough; you do **not** have to include the `\nTab 2 of 4` suffix.
+
+## Filtering logs by severity
+
+`log` is just `tail` over the daemon's stdout — pipe it through `grep` to filter. The recipes below assume the app uses [`package:logging`](https://pub.dev/packages/logging) and configures `Logger.root.onRecord` to prefix each line with a single-letter level tag (`[F]` fine, `[I]` info, `[W]` warning, `[S]` severe). Swap the regex to match whatever scheme your app actually emits — e.g. `^\[(WARNING|SEVERE)\]`.
+
+```bash
+# warnings + severe from the last 500 lines
+scripts/emu.sh log 500 | grep -E '^\[(W|S)\]'
+
+# only severe, follow live
+scripts/emu.sh log -f | grep --line-buffered -E '^\[S\]'
+
+# everything except fine (noisy debug spam)
+scripts/emu.sh log 1000 | grep -vE '^\[F\]'
+```
+
+`grep --line-buffered` is the trick that keeps `tail -f` output flowing through the pipe in near-real-time instead of stalling in 4 KB blocks.
+
+If `ui-list` shows nothing on a debug build, semantics aren't enabled — that's a separate issue from logging. See [Making widgets addressable](#making-widgets-addressable-flutter-semantics).
 
 ## Choosing screenshot vs ui-list
 
@@ -194,7 +213,9 @@ Full-resolution PNGs (1080×2424 on a Pixel-class AVD) are 600 KB–1.5 MB and b
 
 Two agents can share one emulator safely for read-only commands. `screenshot`, `ui-list`, `ui-dump`, `ui-find`, `tap-label`, and `hold-label` all write scratch files to per-invocation paths (suffixed with the script's PID, configurable via `ANDROID_EMU_TMP_ID`) both on the host and on `/sdcard/`, so simultaneous calls don't corrupt each other. That's why `screenshot` prints the path it wrote — don't hardcode `/tmp/android-emu-shot.jpg`; read the path the command echoed.
 
-Shared state that isn't per-invocation: the emulator itself (input is a single stream — simultaneous taps will interleave unpredictably), the flutter daemon (`/tmp/android-emu-flutter.log`, one daemon per device), and the device-size cache (`/tmp/android-emu-device-size`). The practical pattern: one agent owns `run` / `wait-run` / `kill-run`, and both can freely take screenshots or list UI at the same time.
+The flutter daemon log + pidfile are also per-invocation (`/tmp/android-emu-flutter-<id>.log` and `<log>.pid`), so two agents driving **different** emulator devices can each run their own `flutter run` without overwriting each other's log or having `kill-run` take out the wrong daemon. Pin both `ANDROID_EMU_DEVICE` and `ANDROID_EMU_TMP_ID` across the `run` → `wait-run` → `log` → `kill-run` chain so every call resolves to the same paths. One emulator still hosts only one daemon, so two agents on the same device must coordinate (typically: one owns `run`/`kill-run`, both freely use `log`).
+
+Shared state that isn't per-invocation: the emulator itself (input is a single stream — simultaneous taps will interleave unpredictably), the boot log (`/tmp/android-emu-boot.log`), and the device-size cache (`/tmp/android-emu-device-size`).
 
 ## Auto-detection
 

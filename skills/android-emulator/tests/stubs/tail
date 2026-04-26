@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Stubbed `tail`. Logs args, then either:
+#   - passes through to the real tail when `-f` is absent (so existing log
+#     tests can verify line counts)
+#   - emits the file content and exits when `-f` is present, so `emu.sh log -f`
+#     doesn't block the bats harness forever.
+set -u
+echo "tail $*" >> "${STUB_LOG:-/dev/null}"
+
+follow=0
+for arg in "$@"; do
+  [ "$arg" = "-f" ] && follow=1
+done
+
+if [ "$follow" -eq 1 ]; then
+  # Strip -f, then run real tail once so the test still gets the trailing-N output.
+  filtered=()
+  for arg in "$@"; do
+    [ "$arg" = "-f" ] && continue
+    filtered+=("$arg")
+  done
+  exec /usr/bin/tail "${filtered[@]}"
+fi
+
+exec /usr/bin/tail "$@"

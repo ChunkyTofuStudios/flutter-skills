@@ -27,9 +27,12 @@ UI_XML="$BASE_TMP/android-emu-ui-$TMP_ID.xml"
 # On-device scratch for uiautomator dump. Per-invocation so two callers don't
 # clobber each other's dump before it's pulled back.
 DEV_UI_XML="/sdcard/android-emu-ui-$TMP_ID.xml"
-# Shared, device-scoped (not invocation-scoped): only one flutter daemon per
-# emulator, and the size cache is deterministic for a given AVD.
-LOG="$BASE_TMP/android-emu-flutter.log"
+# Per-invocation flutter log + pidfile. Lets two agents drive two different
+# emulator devices concurrently (one daemon per device is still the rule;
+# pin ANDROID_EMU_DEVICE alongside ANDROID_EMU_TMP_ID for that pattern).
+LOG="$BASE_TMP/android-emu-flutter-$TMP_ID.log"
+LOG_PID="$LOG.pid"
+# Boot log + size cache stay shared: one emulator per host, deterministic per AVD.
 BOOT_LOG="$BASE_TMP/android-emu-boot.log"
 SIZE_CACHE="$BASE_TMP/android-emu-device-size"
 
@@ -351,7 +354,9 @@ PY
     ;;
 
   run)
-    # Foreground app daemon → background process. Logs to $LOG.
+    # Foreground app daemon → background process. Logs to $LOG, pid in $LOG_PID
+    # so kill-run can target this specific daemon when multiple agents share
+    # the host (each agent driving its own emulator device).
     project_root >/dev/null || die "cannot find pubspec.yaml above \$PWD; cd into the Flutter project or set ANDROID_EMU_PROJECT_ROOT"
     : > "$LOG"
     # flutter_cmd intentionally returns one OR two words ("flutter" vs
@@ -359,6 +364,7 @@ PY
     # missing binary, so the unquoted expansion here is deliberate.
     # shellcheck disable=SC2046
     nohup $(flutter_cmd) run -d "$DEVICE" > "$LOG" 2>&1 &
+    echo "$!" > "$LOG_PID"
     echo "flutter run started (pid $!), log: $LOG"
     echo "tail with: scripts/emu.sh wait-run"
     ;;
@@ -379,15 +385,35 @@ PY
     ;;
 
   kill-run)
+    # Prefer the pidfile written by `run`: with concurrent agents driving
+    # different devices, a blanket pkill would take out the other agent's
+    # daemon too. Fall back to pkill only when the pidfile is missing
+    # (e.g. flutter was started outside the script).
     load_pkg
-    pkill -f "flutter_tools.snapshot run" 2>/dev/null || true
+    if [ -s "$LOG_PID" ] && pid=$(cat "$LOG_PID") && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+      rm -f "$LOG_PID"
+    else
+      pkill -f "flutter_tools.snapshot run" 2>/dev/null || true
+      rm -f "$LOG_PID"
+    fi
     adb -s "$DEVICE" shell am force-stop "$PKG"
     echo "stopped flutter daemon and force-stopped $PKG"
     ;;
 
   log)
+    # log [-f] [N]  — tail last N lines (default 50). With -f, follow the file
+    # like `tail -f`. Pipe through grep to filter by severity, e.g.
+    # `scripts/emu.sh log 500 | grep -E '^\[(W|S)\]'` for warnings + severe
+    # when the app uses package:logging with [F]/[I]/[W]/[S] prefixes.
+    follow=0
+    if [ "${1:-}" = "-f" ]; then follow=1; shift; fi
     n="${1:-50}"
-    tail -n "$n" "$LOG"
+    if [ "$follow" -eq 1 ]; then
+      tail -n "$n" -f "$LOG"
+    else
+      tail -n "$n" "$LOG"
+    fi
     ;;
 
   boot)
@@ -474,11 +500,13 @@ Emulator lifecycle:
 App control:
   launch                     launch the installed APK (no rebuild)
   stop                       force-stop the app
-  run                        flutter run -d <device> in background (logs to /tmp/android-emu-flutter.log).
-                             Uses `fvm flutter` if .fvm/ is present and fvm is on PATH.
+  run                        flutter run -d <device> in background (logs to /tmp/android-emu-flutter-<id>.log
+                             where <id> is ANDROID_EMU_TMP_ID). Uses `fvm flutter` if .fvm/ is present
+                             and fvm is on PATH. Writes the pid to <log>.pid so kill-run can target it.
   wait-run                   block until `flutter run` attaches or errors (180s timeout)
-  kill-run                   kill flutter daemon + force-stop app
-  log [N]                    tail last N lines of /tmp/android-emu-flutter.log (default 50)
+  kill-run                   kill the flutter daemon (via pidfile) + force-stop app
+  log [-f] [N]               tail last N lines of the per-invocation log (default 50). With -f, follow.
+                             Filter by severity via grep, e.g. `log 500 | grep -E '^\[(W|S)\]'`.
 
 Input (all coords in SCREENSHOT pixels — 360-wide space):
   screenshot                 capture screen → /tmp/android-emu-shot-<id>.jpg (360px wide JPEG q85).
