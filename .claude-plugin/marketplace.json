@@ -1,0 +1,26 @@
+{
+  "name": "chunkytofustudios",
+  "owner": {
+    "name": "Chunky Tofu Studios"
+  },
+  "metadata": {
+    "description": "Open-source Agent Skills for AI-assisted Flutter development.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "android-emulator",
+      "description": "Run, debug, screenshot, and interact with a Flutter app on an Android emulator. Gives the agent eyes (screenshots, accessibility tree) and hands (tap, hold, swipe, multi-touch pinch).",
+      "source": "./",
+      "skills": ["./skills/android-emulator"],
+      "license": "MIT",
+      "homepage": "https://github.com/chunkytofustudios/skills",
+      "repository": "https://github.com/chunkytofustudios/skills",
+      "category": "development",
+      "keywords": ["flutter", "android", "emulator", "adb", "qa", "screenshots"],
+      "author": {
+        "name": "Chunky Tofu Studios"
+      }
+    }
+  ]
+}

@@ -28,6 +28,11 @@ metadata:
 
 `license: MIT` ensures consumers who pull a skill standalone still see the [repo license](LICENSE). `metadata.source` lets them find updates.
 
+**Register the skill in two places.** When adding a new skill:
+
+1. Add a row to the *Available skills* table in [README.md](README.md).
+2. Append a plugin entry to [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) so Claude Code users can `/plugin install <skill>@chunkytofustudios`. Mirror the existing `android-emulator` entry — same `source`, set `skills` to `["./skills/<skill-name>"]`, and copy `description` from the skill's frontmatter so the marketplace listing matches what triggers the skill.
+
 **Validation.** Run [`skills-ref`](https://github.com/agentskills/agentskills/tree/main/skills-ref) before opening a PR:
 
 ```bash

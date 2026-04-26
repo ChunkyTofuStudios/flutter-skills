@@ -14,6 +14,10 @@ More skills will land here over time.
 
 ## Installing a skill
 
+Two supported paths: [skills.sh](#install-via-skillssh) (works with any compatible agent) and the [Claude Code plugin marketplace](#install-via-claude-code-plugins) (Claude Code only). Pick whichever fits your setup.
+
+### Install via skills.sh
+
 Use [skills.sh](https://skills.sh) — the open agent-skills package manager — to install skills from this repo into your project. From your Flutter project's root:
 
 ```bash
@@ -46,9 +50,20 @@ npx skills remove android-emulator
 
 Browse this repo's skills on [skills.sh/chunkytofustudios/skills](https://skills.sh/chunkytofustudios/skills).
 
+### Install via Claude Code plugins
+
+This repo doubles as a [Claude Code plugin marketplace](https://docs.claude.com/en/docs/claude-code/plugins), so [Claude Code](https://claude.com/claude-code) users can install skills directly without `npx skills`. Inside Claude Code:
+
+```text
+/plugin marketplace add chunkytofustudios/skills
+/plugin install android-emulator@chunkytofustudios
+```
+
+The first command registers this repo as a marketplace named `chunkytofustudios`; the second installs a single skill from it. Run `/plugin` on its own to browse what's available, update, or uninstall. Each skill listed in [Available skills](#available-skills) is published as its own plugin under the `chunkytofustudios` marketplace, so you only install what you need.
+
 ### Other install paths
 
-If you'd rather not depend on `npx skills`, every skill in this repo is a self-contained directory under `skills/` — copy or symlink one into your agent's skills directory (`.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, …) and it will be picked up.
+If you'd rather not depend on `npx skills` or the plugin marketplace, every skill in this repo is a self-contained directory under `skills/` — copy or symlink one into your agent's skills directory (`.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, …) and it will be picked up.
 
 ## Contributing
 
