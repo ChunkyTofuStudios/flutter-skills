@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Stubbed `adb`. Logs args to $STUB_LOG and emits canned output for the few
+# subcommands emu.sh actually parses. Override behavior via env vars:
+#   STUB_ADB_DEVICES_EMPTY=1     -> `adb devices` returns no devices
+#   STUB_ADB_SCREEN=1080x2400    -> override `wm size` reply
+#   STUB_ADB_FG_PKG=com.x.y      -> mFocusedApp reply for `dumpsys activity activities`
+#   STUB_ADB_UI_FIXTURE=path     -> file to cat for uiautomator dump
+#   STUB_ADB_BOOT_COMPLETED=0    -> simulate device still booting
+set -u
+echo "adb $*" >> "${STUB_LOG:-/dev/null}"
+
+screen="${STUB_ADB_SCREEN:-1080x2400}"
+fg_pkg="${STUB_ADB_FG_PKG:-com.example.demo}"
+boot_done="${STUB_ADB_BOOT_COMPLETED:-1}"
+
+# Strip leading `-s <serial>` so the case match works regardless of whether
+# the caller specified a device serial.
+if [ "${1:-}" = "-s" ]; then shift 2; fi
+
+case "${1:-}" in
+  devices)
+    if [ "${STUB_ADB_DEVICES_EMPTY:-0}" = "1" ]; then
+      printf 'List of devices attached\n\n'
+    else
+      printf 'List of devices attached\nemulator-5554\tdevice\n\n'
+    fi
+    ;;
+  shell)
+    shift
+    case "$*" in
+      "wm size")
+        printf 'Physical size: %s\n' "$screen"
+        ;;
+      "getprop sys.boot_completed")
+        printf '%s\n' "$boot_done"
+        ;;
+      "dumpsys activity activities")
+        # Match the substrings emu.sh greps for in `foreground`, `app-running`, `health`.
+        printf '    mFocusedApp=ActivityRecord{abc u0 %s/.MainActivity t1}\n' "$fg_pkg"
+        ;;
+      *)
+        # input tap / motionevent / monkey / am / keyevent — log only.
+        ;;
+    esac
+    ;;
+  exec-out)
+    shift
+    case "$*" in
+      "screencap -p")
+        # Emit a tiny PNG signature. The screenshot pipeline pipes this to
+        # `sips`, which we also stub, so byte content doesn't matter.
+        printf '\x89PNG\r\n\x1a\n'
+        ;;
+      *uiautomator*dump*)
+        if [ -n "${STUB_ADB_UI_FIXTURE:-}" ] && [ -f "$STUB_ADB_UI_FIXTURE" ]; then
+          cat "$STUB_ADB_UI_FIXTURE"
+        fi
+        ;;
+    esac
+    ;;
+  emu)
+    shift
+    case "$*" in
+      "avd name")
+        printf '%s\nOK\n' "${STUB_ADB_AVD_NAME:-Pixel_7_API_34}"
+        ;;
+    esac
+    ;;
+  *)
+    : # log only
+    ;;
+esac
+
+exit "${STUB_ADB_EXIT:-0}"

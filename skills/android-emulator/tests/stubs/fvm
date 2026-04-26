@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Stubbed `fvm`. Presence on PATH is what flutter_cmd checks; behavior doesn't matter.
+set -u
+echo "fvm $*" >> "${STUB_LOG:-/dev/null}"
+exit 0

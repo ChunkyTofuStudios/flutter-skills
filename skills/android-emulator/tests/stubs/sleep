@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Stubbed `sleep`. Logs the requested duration and returns immediately so
+# tests stay fast (real sleeps would add up across `hold` / `hold-label` tests).
+set -u
+echo "sleep $*" >> "${STUB_LOG:-/dev/null}"
+exit 0

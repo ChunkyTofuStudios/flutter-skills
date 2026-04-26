@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Stubbed `sips`. Logs args; creates the output file requested via `--out`
+# so the screenshot command can echo a path that exists.
+set -u
+echo "sips $*" >> "${STUB_LOG:-/dev/null}"
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "--out" ]; then
+    : > "$arg"
+  fi
+  prev="$arg"
+done
+exit 0

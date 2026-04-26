@@ -15,19 +15,23 @@ EMU_PORT="${ANDROID_EMU_CONSOLE_PORT:-5554}"
 # invocation; override with ANDROID_EMU_TMP_ID for a stable id across calls.
 TMP_ID="${ANDROID_EMU_TMP_ID:-$$}"
 
-SHOT="/tmp/android-emu-shot-$TMP_ID.jpg"
-SHOT_FULL="/tmp/android-emu-shot-full-$TMP_ID.png"
+# Host-side scratch directory. Defaults to /tmp; override with ANDROID_EMU_TMP_DIR
+# for tests or sandboxed environments where /tmp isn't writable.
+BASE_TMP="${ANDROID_EMU_TMP_DIR:-/tmp}"
+
+SHOT="$BASE_TMP/android-emu-shot-$TMP_ID.jpg"
+SHOT_FULL="$BASE_TMP/android-emu-shot-full-$TMP_ID.png"
 SHOT_WIDTH=360
 SHOT_QUALITY="${ANDROID_EMU_SHOT_QUALITY:-85}"
-UI_XML="/tmp/android-emu-ui-$TMP_ID.xml"
+UI_XML="$BASE_TMP/android-emu-ui-$TMP_ID.xml"
 # On-device scratch for uiautomator dump. Per-invocation so two callers don't
 # clobber each other's dump before it's pulled back.
 DEV_UI_XML="/sdcard/android-emu-ui-$TMP_ID.xml"
 # Shared, device-scoped (not invocation-scoped): only one flutter daemon per
 # emulator, and the size cache is deterministic for a given AVD.
-LOG="/tmp/android-emu-flutter.log"
-BOOT_LOG="/tmp/android-emu-boot.log"
-SIZE_CACHE="/tmp/android-emu-device-size"
+LOG="$BASE_TMP/android-emu-flutter.log"
+BOOT_LOG="$BASE_TMP/android-emu-boot.log"
+SIZE_CACHE="$BASE_TMP/android-emu-device-size"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -163,6 +167,10 @@ if not m:
 print(' '.join(m.groups()))
 PY
 }
+
+# Skip dispatch when sourced (lets tests call the functions above directly).
+# shellcheck disable=SC2317 # `|| true` is the fallback when `return` fails.
+if [ "${BASH_SOURCE[0]}" != "${0}" ]; then return 0 2>/dev/null || true; fi
 
 cmd="${1:-help}"; [ "$#" -gt 0 ] && shift
 
@@ -346,6 +354,10 @@ PY
     # Foreground app daemon → background process. Logs to $LOG.
     project_root >/dev/null || die "cannot find pubspec.yaml above \$PWD; cd into the Flutter project or set ANDROID_EMU_PROJECT_ROOT"
     : > "$LOG"
+    # flutter_cmd intentionally returns one OR two words ("flutter" vs
+    # "fvm flutter"); quoting would collapse the latter into a single
+    # missing binary, so the unquoted expansion here is deliberate.
+    # shellcheck disable=SC2046
     nohup $(flutter_cmd) run -d "$DEVICE" > "$LOG" 2>&1 &
     echo "flutter run started (pid $!), log: $LOG"
     echo "tail with: scripts/emu.sh wait-run"
@@ -508,6 +520,7 @@ Env:
   ANDROID_EMU_BOOT_SECS      boot timeout (default: 180)
   ANDROID_EMU_TMP_ID         scratch-file suffix (default: $$). Pin across calls
                              when concurrent agents share one emulator.
+  ANDROID_EMU_TMP_DIR        host-side scratch dir (default: /tmp)
 EOF
     ;;
 esac

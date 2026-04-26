@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Stubbed `pkill`. Logs args and exits 0 so kill-run tests don't actually
+# hunt for processes on the host.
+set -u
+echo "pkill $*" >> "${STUB_LOG:-/dev/null}"
+exit 0

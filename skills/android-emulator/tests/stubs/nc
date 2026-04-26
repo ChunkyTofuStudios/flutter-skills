@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Stubbed `nc`. Captures the auth/event payload that emu.sh would send to the
+# qemu console (used by `pinch` and `exit`). The full piped payload is appended
+# to $STUB_LOG so tests can grep it.
+set -u
+echo "nc $*" >> "${STUB_LOG:-/dev/null}"
+{
+  echo "--- nc stdin ---"
+  cat
+  echo "--- nc stdin end ---"
+} >> "${STUB_LOG:-/dev/null}"
+exit 0

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Stubbed `emulator`. Logs args to $STUB_LOG; supports -list-avds.
+set -u
+echo "emulator $*" >> "${STUB_LOG:-/dev/null}"
+
+case "${1:-}" in
+  -list-avds)
+    printf '%s\n' "${STUB_EMULATOR_AVDS:-Pixel_7_API_34}"
+    ;;
+  *)
+    : # boot path: tests don't actually wait for boot
+    ;;
+esac
+
+exit "${STUB_EMULATOR_EXIT:-0}"
