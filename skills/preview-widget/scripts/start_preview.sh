@@ -81,17 +81,18 @@ LOG_FILE="$STATE_DIR/flutter-widget-preview.log"
 
 # Read a top-level string field from the state JSON without depending on `jq`.
 # Bash 3.2-compatible: matches `"key": "value"` (with optional whitespace) on
-# any line and prints just the value.
+# any line and prints just the value. Uses awk's regex `~` operator (not the
+# literal `index()`) so the [[:space:]]* in the pattern is interpreted as
+# regex, which is the whole point of the helper.
 read_state_string() {
   local key="$1" file="$2"
   awk -v k="$key" '
-    BEGIN { pat = "\"" k "\"[[:space:]]*:[[:space:]]*\"" }
     {
-      i = index($0, pat)
-      if (i > 0) {
-        s = substr($0, i + length(pat))
-        j = index(s, "\"")
-        if (j > 0) { print substr(s, 1, j - 1); exit }
+      pat = "\"" k "\"[[:space:]]*:[[:space:]]*\""
+      if ($0 ~ pat) {
+        sub("^.*" pat, "", $0)
+        sub("\".*$", "", $0)
+        print; exit
       }
     }
   ' "$file"
@@ -100,15 +101,13 @@ read_state_string() {
 read_state_number() {
   local key="$1" file="$2"
   awk -v k="$key" '
-    BEGIN { pat = "\"" k "\"[[:space:]]*:[[:space:]]*" }
     {
-      i = index($0, pat)
-      if (i > 0) {
-        s = substr($0, i + length(pat))
-        # Strip a trailing comma or closing brace.
-        gsub(/[,}].*$/, "", s)
-        gsub(/[[:space:]]+/, "", s)
-        print s; exit
+      pat = "\"" k "\"[[:space:]]*:[[:space:]]*"
+      if ($0 ~ pat) {
+        sub("^.*" pat, "", $0)
+        # Strip a trailing comma, brace, or whitespace and anything after.
+        sub("[,}[:space:]].*$", "", $0)
+        print; exit
       }
     }
   ' "$file"
@@ -201,25 +200,51 @@ mkdir -p "$STATE_DIR"
 
 log "Starting preview server: ${FLUTTER_BIN_ARR[*]} widget-preview start"
 
-# `nohup` ignores SIGHUP so the bg process survives this script's exit.
-# `</dev/null` so the child can't accidentally read our (already-closed) stdin.
-# `disown` removes it from the shell's job table; harmless if it errors.
-nohup "${FLUTTER_BIN_ARR[@]}" widget-preview start >"$LOG_FILE" 2>&1 </dev/null &
-SERVER_PID=$!
-disown "$SERVER_PID" 2>/dev/null || true
+PID_FILE="$STATE_DIR/.start.pid"
+rm -f "$PID_FILE"
+
+# Double-fork via subshell so the long-running preview server is fully
+# orphaned (re-parented to launchd / init). Without this, the bg process
+# inherits FD copies that keep our caller's stdout pipe open even after
+# this script exits — which hangs anything reading our stdout (notably
+# bats's `output=$(...)` capture in the test suite).
+#
+# `nohup` is belt-and-braces: ignores SIGHUP if the controlling terminal
+# closes. `</dev/null` so the child can't read our (already-closed) stdin.
+(
+  nohup "${FLUTTER_BIN_ARR[@]}" widget-preview start >"$LOG_FILE" 2>&1 </dev/null &
+  printf '%d\n' "$!" > "$PID_FILE"
+)
+
+# The inner subshell writes the PID *before* `nohup` execs, so this is
+# microseconds in practice — but we still wait briefly to be safe.
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [[ -f "$PID_FILE" ]] && break
+  sleep 0.01
+done
+
+if [[ ! -f "$PID_FILE" ]]; then
+  error "Failed to record preview server PID. Check $LOG_FILE."
+  exit 1
+fi
+
+SERVER_PID=$(cat "$PID_FILE")
+rm -f "$PID_FILE"
 
 ############################################
 # WAIT FOR URL
 ############################################
 
+# Deadline-based polling so the loop is responsive (50ms cadence) without
+# making the user pass fractional --timeout values. `date +%s` is portable
+# across macOS and Linux.
 URL=""
-elapsed=0
-poll_interval=1
+deadline=$(( $(date +%s) + TIMEOUT ))
 
-while (( elapsed < TIMEOUT )); do
-  # Match http(s)://localhost:PORT or http(s)://127.0.0.1:PORT. Tightening to
-  # the loopback hosts avoids latching onto a docs URL the CLI might print
-  # in its banner.
+while (( $(date +%s) < deadline )); do
+  # Match http(s)://localhost:PORT or http(s)://127.0.0.1:PORT. Tightening
+  # to the loopback hosts avoids latching onto a docs URL the CLI might
+  # print in its banner.
   URL=$(grep -oE 'https?://(localhost|127\.0\.0\.1):[0-9]+' "$LOG_FILE" 2>/dev/null \
     | head -n 1 || true)
   if [[ -n "$URL" ]]; then
@@ -233,8 +258,7 @@ while (( elapsed < TIMEOUT )); do
     exit 1
   fi
 
-  sleep "$poll_interval"
-  elapsed=$(( elapsed + poll_interval ))
+  sleep 0.05
 done
 
 if [[ -z "$URL" ]]; then

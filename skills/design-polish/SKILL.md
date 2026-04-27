@@ -26,8 +26,6 @@ scripts/emu.sh run           # build & install in background
 scripts/emu.sh wait-run      # block until attached
 ```
 
-If the app needs login, get credentials from the user (or from `.env` / `lib/config/` if the project keeps them there) before navigating.
-
 ## Establish design tone
 
 **Do this once before touching any screen.** Skipping it is the single biggest source of inconsistency — your changes will look right in isolation and wrong next to the rest of the app.
@@ -102,7 +100,7 @@ If a change looks wrong, revert and try differently. Do not pile fixes on top of
 
 ### 4. Evaluate (sub-agent)
 
-Take "after" screenshots (interact with the page again). Then **spawn an evaluator sub-agent** with the Agent tool, using the latest Opus model, with this prompt (fill in `SCREEN_NAME`, `NAVIGATION_HINT`, and `LOGIN` — or "no login required"):
+Take "after" screenshots (interact with the page again). Then **spawn an evaluator sub-agent** with the Agent tool, using the latest Opus model, with this prompt (fill in `SCREEN_NAME` and `NAVIGATION_HINT`):
 
 ---
 
@@ -116,8 +114,6 @@ The app is already running on an Android emulator. Use the `android-emulator` sk
 - `scripts/emu.sh tap-label "..."` to navigate to SCREEN_NAME (NAVIGATION_HINT)
 - `scripts/emu.sh screenshot` to capture each state — read the printed path
 - Scroll, tap every tab, expand panels, open menus — interact like a real user. Capture screenshots of each meaningful state.
-
-Login: LOGIN.
 
 Score 1–10 on each criterion with 2–3 sentence justification:
 

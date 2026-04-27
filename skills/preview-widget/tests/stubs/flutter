@@ -8,8 +8,9 @@
 #   STUB_FLUTTER_PREVIEW_DELAY=N      -> sleep N seconds before printing the URL
 #   STUB_FLUTTER_PREVIEW_NO_URL=1     -> never print a URL (just hang)
 #   STUB_FLUTTER_PREVIEW_LIFETIME=N   -> stay alive N seconds after printing
-#                                        (default 600 — long-running like the
-#                                        real server). Tests teardown kills it.
+#                                        (default 3 — long enough for tests to
+#                                        observe a live PID, short enough to
+#                                        self-collect if teardown is skipped).
 set -u
 echo "flutter $*" >> "${STUB_LOG:-/dev/null}"
 
@@ -43,9 +44,11 @@ case "${1:-}" in
             "${STUB_FLUTTER_URL:-http://localhost:51530}"
         fi
 
-        # Mimic a long-running server. The test's pw_teardown kills us via the
-        # PID recorded in the state file.
-        sleep "${STUB_FLUTTER_PREVIEW_LIFETIME:-600}"
+        # Mimic a long-running server. `exec` replaces this bash with sleep
+        # so the PID start_preview.sh recorded directly addresses the sleep —
+        # `kill PID` terminates it cleanly instead of orphaning the sleep when
+        # bash exits.
+        exec sleep "${STUB_FLUTTER_PREVIEW_LIFETIME:-3}"
         ;;
       *)
         printf 'unknown widget-preview subcommand: %s\n' "$sub" >&2

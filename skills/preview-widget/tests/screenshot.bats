@@ -88,36 +88,18 @@ EOF
   [[ "$output" == *"Could not parse"* ]]
 }
 
-@test "exit 127 when no Chrome binary is found" {
+@test "honors CHROME_BIN override pointing at a missing path" {
+  # CHROME_BIN auto-detect on macOS hardcodes /Applications/Google Chrome.app
+  # ahead of PATH lookup, so simulating "no Chrome installed" cleanly on a
+  # dev Mac is brittle. This test instead asserts that an explicit CHROME_BIN
+  # bypasses auto-detect: pointing at a non-existent path means the script
+  # tries to run it, the exec fails, the file isn't produced → exit 1 with
+  # the expected error.
   write_state
-  # Strip the stubs dir from PATH and shadow the macOS Chrome.app lookup
-  # by overriding HOME isn't enough — that path is absolute. We point
-  # CHROME_BIN at a definitely-missing path to short-circuit detection
-  # AND simultaneously remove google-chrome / chromium from PATH.
-  CHROME_BIN="" PATH="/usr/bin:/bin" run_screenshot \
-    --out "$TEST_TMP/x.png" --url "http://localhost:1234"
-  # On a CI machine without Chrome installed, this will exit 127. On a dev
-  # mac with Chrome.app, the macOS auto-detect still finds it. Accept either:
-  # we only care that the code path is reachable. The stronger assertion
-  # lives in the next test using a fake CHROME_BIN.
-  [ "$status" -eq 0 ] || [ "$status" -eq 127 ]
-}
-
-@test "honors CHROME_BIN override pointing at a missing file" {
-  write_state
-  # Pointing CHROME_BIN at a real file but one that isn't executable would
-  # still be picked up by the auto-detect block (which only checks `-x`).
-  # Setting it to a path that *is* executable (our stub) confirms the
-  # override wins over auto-detect. That's what the next happy-path test
-  # already exercises; here we assert that a non-executable CHROME_BIN
-  # value is honored as-is (the script trusts the caller).
   CHROME_BIN="/definitely/not/here" run_screenshot \
     --out "$TEST_TMP/x.png" --url "http://localhost:1234"
-  # Chrome isn't actually invokable, so the screenshot won't appear.
   [ "$status" -eq 1 ]
-  [[ "$output" == *"did not produce a screenshot"* ]] \
-    || [[ "$output" == *"No such file"* ]] \
-    || [[ "$output" == *"command not found"* ]]
+  [[ "$output" == *"did not produce a screenshot"* ]]
 }
 
 @test "errors when chrome runs but no file is produced" {

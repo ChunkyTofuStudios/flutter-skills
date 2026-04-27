@@ -33,15 +33,18 @@ pw_setup() {
   # Default stub URL the fake `flutter` binary advertises.
   export STUB_FLUTTER_URL="http://localhost:51530"
 
-  # Prepend stubs so they shadow real `flutter`, `chrome`, `nohup`. We keep
-  # the rest of PATH (awk/grep/find/...) intact.
+  # Prepend stubs so they shadow real `flutter`. `flutter` resolves via
+  # `command -v` so PATH-prepending is enough. `chrome`, on the other hand,
+  # is auto-detected via a hardcoded absolute path to /Applications/Google
+  # Chrome.app *before* PATH is consulted — so on a developer's Mac the
+  # real Chrome would shadow our stub. Point CHROME_BIN at the stub to
+  # short-circuit that lookup.
   export PATH="$PW_STUBS_DIR:$PATH"
+  export CHROME_BIN="$PW_STUBS_DIR/chrome"
 
-  # The scripts' default `flutter` lookup uses `command -v flutter`. We rely
-  # on the stub being on PATH; FLUTTER_BIN stays unset so the auto-detect
-  # branch is exercised.
+  # FLUTTER_BIN stays unset so the auto-detect branch is exercised against
+  # the PATH'd stub.
   unset FLUTTER_BIN || true
-  unset CHROME_BIN  || true
 }
 
 pw_teardown() {

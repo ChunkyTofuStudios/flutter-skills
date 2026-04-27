@@ -1,13 +1,14 @@
 #!/usr/bin/env bats
 # Tests for start_preview.sh — URL parsing, state file, idempotency, --stop.
 
+bats_require_minimum_version 1.5.0
 load helpers
 
 setup()    { pw_setup; }
 teardown() { pw_teardown; }
 
 @test "starts the server, captures URL, writes state file" {
-  run_start --timeout 10
+  run_start --timeout 2
   [ "$status" -eq 0 ]
 
   # The URL is the only thing on stdout (modulo a trailing newline).
@@ -30,19 +31,19 @@ teardown() { pw_teardown; }
 }
 
 @test "honors a custom URL from the stub" {
-  STUB_FLUTTER_URL="http://127.0.0.1:62000" run_start --timeout 10
+  STUB_FLUTTER_URL="http://127.0.0.1:62000" run_start --timeout 2
   [ "$status" -eq 0 ]
   [[ "$output" == *"http://127.0.0.1:62000"* ]]
 }
 
 @test "is idempotent — second invocation reuses the running server" {
-  run_start --timeout 10
+  run_start --timeout 2
   [ "$status" -eq 0 ]
 
   state_file="$PREVIEW_WIDGET_STATE_DIR/server.json"
   pid_first=$(awk '/"pid"/ {gsub(/[^0-9]/, ""); print; exit}' "$state_file")
 
-  run_start --timeout 10
+  run_start --timeout 2
   [ "$status" -eq 0 ]
   [[ "$output" == *"http://localhost:51530"* ]]
 
@@ -51,7 +52,7 @@ teardown() { pw_teardown; }
 }
 
 @test "fails when flutter widget-preview start exits before printing a URL" {
-  STUB_FLUTTER_PREVIEW_FAIL=1 run_start --timeout 5
+  STUB_FLUTTER_PREVIEW_FAIL=1 run_start --timeout 2
   [ "$status" -eq 1 ]
   [[ "$output" == *"exited before printing a URL"* ]]
   # No state file should be written on failure.
@@ -59,8 +60,8 @@ teardown() { pw_teardown; }
 }
 
 @test "times out when no URL ever appears in the log" {
-  STUB_FLUTTER_PREVIEW_NO_URL=1 STUB_FLUTTER_PREVIEW_LIFETIME=30 \
-    run_start --timeout 2
+  STUB_FLUTTER_PREVIEW_NO_URL=1 STUB_FLUTTER_PREVIEW_LIFETIME=5 \
+    run_start --timeout 1
   [ "$status" -eq 1 ]
   [[ "$output" == *"Timed out"* ]]
 }
@@ -72,7 +73,7 @@ teardown() { pw_teardown; }
 }
 
 @test "--stop kills the recorded PID and removes the state file" {
-  run_start --timeout 10
+  run_start --timeout 2
   [ "$status" -eq 0 ]
 
   state_file="$PREVIEW_WIDGET_STATE_DIR/server.json"
@@ -83,7 +84,6 @@ teardown() { pw_teardown; }
   run_start --stop
   [ "$status" -eq 0 ]
   [ ! -f "$state_file" ]
-  # Process should be gone (give the kill a moment).
   ! kill -0 "$pid" 2>/dev/null
 }
 
@@ -98,7 +98,7 @@ teardown() { pw_teardown; }
 }
 EOF
 
-  run_start --timeout 10
+  run_start --timeout 2
   [ "$status" -eq 0 ]
   # New URL, not the stale one.
   [[ "$output" == *"http://localhost:51530"* ]]
@@ -106,8 +106,8 @@ EOF
 }
 
 @test "exit 127 when no flutter binary is on PATH and no FLUTTER_BIN" {
-  # Drop the stubs dir from PATH so `flutter` disappears.
-  PATH="/usr/bin:/bin" run_start --timeout 5
-  [ "$status" -eq 127 ]
+  # `run -127` asserts the expected status without the BW01 warning bats
+  # emits for command-not-found exit codes from a plain `run`.
+  PATH="/usr/bin:/bin" run -127 "$PW_SCRIPTS_DIR/start_preview.sh" --timeout 1
   [[ "$output" == *"Flutter not found"* ]]
 }

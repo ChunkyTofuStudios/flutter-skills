@@ -224,3 +224,54 @@ teardown() { emu_teardown; }
   done
   assert_called "flutter run -d emulator-5554"
 }
+
+# --- input validation (defence-in-depth against arithmetic injection) -------
+
+@test "tap rejects a non-integer X coordinate" {
+  # Bash arithmetic ($((...))) evaluates command substitution inside the
+  # operand, so an unsanitised coord like '1+$(id)' would execute `id`.
+  # require_int must catch this before $((...)) runs.
+  run_emu tap '1+$(id)' 10
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"non-negative integer"* ]]
+  refute_called "adb -s emulator-5554 shell input tap"
+}
+
+@test "swipe rejects a non-integer duration" {
+  run_emu swipe 10 20 30 40 '300; reboot'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"non-negative integer"* ]]
+  refute_called "adb -s emulator-5554 shell input swipe"
+}
+
+@test "hold rejects a non-integer duration" {
+  run_emu hold 10 20 'a[$(rm)]'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"non-negative integer"* ]]
+  refute_called "adb -s emulator-5554 shell input motionevent"
+}
+
+@test "log rejects a non-integer line count" {
+  : > "$TEST_TMP/android-emu-flutter-bats.log"
+  run_emu log '50; rm'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"non-negative integer"* ]]
+}
+
+# --- ANDROID_EMU_FLUTTER_CMD override is split into args, not re-evaluated --
+
+@test "run splits a multi-word ANDROID_EMU_FLUTTER_CMD into separate argv tokens" {
+  # `read -ra` (the array-expansion form used by `run`) splits on $IFS but
+  # does no further evaluation — no command substitution, no globbing. This
+  # test pins the multi-word split that the original unquoted `$(...)`
+  # supported, and is the regression guard for the array refactor.
+  proj=$(make_flutter_project ovr gradle com.example.ovr)
+  cd "$proj"
+  ANDROID_EMU_FLUTTER_CMD='flutter --extra-flag' run_emu run
+  [ "$status" -eq 0 ]
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    grep -F "flutter --extra-flag run -d emulator-5554" "$STUB_LOG" >/dev/null 2>&1 && break
+    /bin/sleep 0.1
+  done
+  assert_called "flutter --extra-flag run -d emulator-5554"
+}

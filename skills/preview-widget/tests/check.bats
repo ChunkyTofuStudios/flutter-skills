@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 # Tests for check_preview_support.sh — Flutter detection + version comparison.
 
+bats_require_minimum_version 1.5.0
 load helpers
 
 setup()    { pw_setup; }
@@ -50,8 +51,9 @@ teardown() { pw_teardown; }
 
 @test "exit 127 when no flutter binary is on PATH" {
   # Strip our stubs dir from PATH so `flutter` and `fvm` both vanish.
-  PATH="/usr/bin:/bin" run_check
-  [ "$status" -eq 127 ]
+  # `run -127` asserts the expected status without the BW01 warning bats
+  # emits for command-not-found exit codes from a plain `run`.
+  PATH="/usr/bin:/bin" run -127 "$PW_SCRIPTS_DIR/check_preview_support.sh"
   [[ "$output" == *"Flutter not found"* ]]
 }
 

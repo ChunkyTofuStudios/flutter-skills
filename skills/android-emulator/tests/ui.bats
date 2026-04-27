@@ -52,6 +52,30 @@ teardown() { emu_teardown; }
   [[ "$output" == *"semantics"* ]] || [[ "$stderr" == *"semantics"* ]]
 }
 
+@test "ui-list wraps output in untrusted-data boundary markers" {
+  # Labels come from the running app and are an indirect prompt-injection
+  # vector. The boundary tags + warning instruct the agent to treat the
+  # contents as data, not instructions.
+  run_emu ui-list
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"<untrusted-ui-data>"* ]]
+  [[ "$output" == *"</untrusted-ui-data>"* ]]
+  [[ "$output" == *"UNTRUSTED"* ]]
+}
+
+@test "ui-list still closes the boundary tag when no nodes are found" {
+  printf '%s\n' \
+    "<?xml version='1.0'?>" \
+    "<hierarchy><node bounds='[0,0][100,100]' /></hierarchy>" \
+    > "$TEST_TMP/empty-dump.xml"
+  STUB_ADB_UI_FIXTURE="$TEST_TMP/empty-dump.xml" run_emu ui-list
+  [ "$status" -eq 2 ]
+  # An unclosed <untrusted-ui-data> would let trailing stderr text bleed
+  # into the agent's "untrusted region" framing.
+  [[ "$output" == *"<untrusted-ui-data>"* ]]
+  [[ "$output" == *"</untrusted-ui-data>"* ]]
+}
+
 # --- ui-find -----------------------------------------------------------------
 
 @test "ui-find returns bounds + screenshot/device centers for an exact match" {
@@ -118,4 +142,18 @@ teardown() { emu_teardown; }
   run_emu tap-label NoSuchButton
   [ "$status" -ne 0 ]
   [[ "$output" == *"no UI node matching"* ]]
+}
+
+# --- ui-dump boundary markers ------------------------------------------------
+
+@test "ui-dump wraps the raw XML in untrusted-xml boundary markers" {
+  # Same prompt-injection mitigation as ui-list — XML attributes carry
+  # app-controlled text that must not be parsed as agent instructions.
+  run_emu ui-dump
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"<untrusted-ui-xml>"* ]]
+  [[ "$output" == *"</untrusted-ui-xml>"* ]]
+  [[ "$output" == *"UNTRUSTED"* ]]
+  # Real XML payload still passes through.
+  [[ "$output" == *"hierarchy"* ]]
 }
