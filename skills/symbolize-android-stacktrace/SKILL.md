@@ -17,7 +17,7 @@ All three must hold — if any is false, this skill is the wrong tool:
 
 1. The app is a **Flutter** app targeting **Android**.
 2. The trace was exported from the **Google Play Console** (Crash dashboard or ANR dashboard) — typically a `.txt`/`.log` with `pc 0x…` frames, optionally a `# Application:` / `# Version:` header.
-3. The release build was produced by **Codemagic CI/CD**, with the workflow uploading both `android_native_debug_symbols.zip` *and* `<AppName>_<N>_artifacts.zip` (Flutter's split-debug-info `.symbols` files) as build artefacts. Without those, there is nothing to match the obfuscated PCs against.
+3. The release build was produced by **Codemagic CI/CD**, with the workflow uploading both `android_native_debug_symbols.zip` *and* `<AppName>_<N>_artifacts.zip` (Flutter's split-debug-info `.symbols` files) as build artefacts. Without those, there is nothing to match the obfuscated PCs against. `mapping.txt` (R8/ProGuard) is also pulled when present — it lets the symbolizer turn `Ka.n.l+8` style Java frames back into `io.flutter.embedding.engine.FlutterJNI.onSurfaceDestroyed`, which is the difference between a readable Java side and a wall of obfuscated names.
 
 If you're unsure whether the build was from Codemagic, check `codemagic.yaml` at the repo root or ask the user.
 
@@ -35,10 +35,11 @@ There is **no other setup**. In particular, `gh` is **not** required — see [st
 
 ## Bundled scripts
 
-- **`scripts/codemagic_fetch_artifacts.py`** — three-mode discovery + download tool. JSON to stdout, progress to stderr.
-- **`scripts/symbolize_flutter_anr.sh`** — order-insensitive trace + symbol bundler. Detects which input is which.
+- **`scripts/codemagic_fetch_artifacts.py`** — three-mode discovery + download tool. JSON to stdout, progress to stderr. Also pulls `mapping.txt` when the build produced one.
+- **`scripts/symbolize_flutter_anr.sh`** — order-insensitive trace + symbol bundler. Detects which input is which (trace, native zip, Flutter zip, `mapping.txt`).
+- **`scripts/deobfuscate_r8.py`** — bulk R8/ProGuard mapping resolver. Invoked once per trace by the bash symbolizer; not normally called directly.
 
-Both ship with `--help`. Read it before improvising flags.
+All three ship with `--help` (or a header docstring). Read it before improvising flags.
 
 ## Workflow
 
@@ -92,10 +93,13 @@ Step (c)'s stdout is JSON — parse `.cacheDir` and `.files[].path` to feed the 
   "cacheDir": "/Users/you/.cache/codemagic-fetch-artifacts/codemagic/<appId>/<buildId>",
   "files": [
     { "name": "android_native_debug_symbols.zip", "path": "…/android_native_debug_symbols.zip", "size": 123456789, "cached": true },
-    { "name": "PixelBuddy_42_artifacts.zip",       "path": "…/PixelBuddy_42_artifacts.zip",       "size": 12345678,  "cached": false }
+    { "name": "PixelBuddy_42_artifacts.zip",       "path": "…/PixelBuddy_42_artifacts.zip",       "size": 12345678,  "cached": false },
+    { "name": "mapping.txt",                       "path": "…/mapping.txt",                       "size": 6543210,   "cached": false }
   ]
 }
 ```
+
+`mapping.txt` is optional and only present when the build enabled R8/ProGuard. Apps without minification simply won't have an entry — that's fine, just skip the `mapping.txt` argument in step 4.
 
 If the app or version isn't found, the script exits non-zero with the available list — surface that to the user instead of looping.
 
@@ -105,10 +109,13 @@ If the app or version isn't found, the script exits non-zero with the available 
 bash scripts/symbolize_flutter_anr.sh \
   /tmp/play-stacktrace.log \
   ~/.cache/codemagic-fetch-artifacts/codemagic/<appId>/<buildId>/android_native_debug_symbols.zip \
-  ~/.cache/codemagic-fetch-artifacts/codemagic/<appId>/<buildId>/<AppName>_<N>_artifacts.zip
+  ~/.cache/codemagic-fetch-artifacts/codemagic/<appId>/<buildId>/<AppName>_<N>_artifacts.zip \
+  ~/.cache/codemagic-fetch-artifacts/codemagic/<appId>/<buildId>/mapping.txt   # optional
 ```
 
-Argument order doesn't matter — the script sniffs each input and classifies it as the trace, the native zip, or the Flutter symbols zip. Defaults the output to `<trace>.symbolized.txt` next to the input. Override with `-o`. Use `--json` for a machine-readable summary on stdout.
+Argument order doesn't matter — the script sniffs each input and classifies it as the trace, the native zip, the Flutter symbols zip, or the R8 `mapping.txt`. Defaults the output to `<trace>.symbolized.txt` next to the input. Override with `-o`. Use `--json` for a machine-readable summary on stdout.
+
+When `mapping.txt` is provided, user-app Java frames (paths like `<userPackage>/base.apk`, `<userPackage>/oat/.../base.odex`, or `/memfd:jit-cache`) get a `[JAVA: …]` annotation with the deobfuscated `<class>.<method>`. Frames whose class isn't in the mapping (typical for Flutter SDK code that R8 left alone, or for stale mappings) are tagged `[JAVA: not in mapping.txt]`. If you skip `mapping.txt`, those same frames get `[JAVA: pass mapping.txt to deobfuscate]` so it's clear what to do next.
 
 ### 5. Read the symbolized output and debug
 
@@ -129,10 +136,11 @@ Frames the script couldn't resolve get `[UNRESOLVED]`. The summary at the end re
 - **The version string must match the Codemagic build's `version` field exactly.** Codemagic stores e.g. `"2.3.1"`; a `v` prefix is tolerated, but appending the build number (`2.3.1+42`) is not. If unsure, run `codemagic_fetch_artifacts.py --app …` (no `--build`) to see the available versions.
 - **ABI is detected from the trace by greps** for `arm64`, `armeabi`, `x86_64`, `x86`. The 99% case is `arm64-v8a`. If the trace genuinely lacks an ABI hint, the script defaults to `arm64-v8a`.
 - **The Flutter symbols zip is named `<AppName>_<N>_artifacts.zip`** where `<N>` is the Codemagic build sequence (not the version). The fetch script picks it up via the regex `.+_\d+_artifacts\.zip`. If the Codemagic workflow renamed the artifact, update `FLUTTER_ARTIFACTS_RE` in `scripts/codemagic_fetch_artifacts.py`.
-- **System library frames stay unresolved on purpose.** Frames in `libc.so`, `libart.so`, `com.google.android.gms`, `com.google.android.webview`, `system_server`, etc. aren't from your build — those PCs match Android system binaries no Codemagic artifact ships. The script tags them `[SYSTEM: no BuildId …]`. Don't chase them; focus on frames pointing into `split_config.<abi>.apk` for *your* package.
+- **System library frames stay unresolved on purpose.** Frames in `libc.so`, `libart.so`, `com.google.android.gms`, `com.google.android.webview`, `/data/misc/apexdata/com.android.art/.../boot.oat` (Android Runtime's pre-compiled boot image), `system_server`, etc. aren't from your build — those PCs match Android system binaries no Codemagic artifact ships. The script tags them `[SYSTEM: …]`. Don't chase them; focus on frames pointing into `split_config.<abi>.apk` for *your* package.
+- **R8-obfuscated Java frames need `mapping.txt`.** Names like `Ka.n.l+8` in a `<userPackage>/base.apk` frame are your own code, just minified. Codemagic uploads `mapping.txt` alongside the symbol zips, and the symbolizer applies it automatically when you pass it as the fourth argument. Without it, Java frames get a `[JAVA: pass mapping.txt to deobfuscate]` hint instead of being silently lumped into `[SYSTEM]`. Frames in `<userPackage>/oat/.../base.odex` and `/memfd:jit-cache` (AOT- and JIT-compiled user Java) get the same treatment; `boot.oat` and `framework.jar` are correctly classified as system instead.
 - **Flutter engine frames (`libflutter.so`) ship stripped.** The `libflutter.so` bundled in `android_native_debug_symbols.zip` carries the Build ID but no DWARF debug info, so even a correct Build-ID match resolves to no source coordinates — the script tags those `[UNRESOLVED: BuildId … matched but PC has no debug info (Flutter engine binaries ship stripped)]`. The trace's own `(flutter::Foo()+offset)` text from Play Console is already the best we get for engine frames; the skill's value-add lives in the `libapp.so` (Dart AOT) frames that resolve cleanly via the `app.android-<abi>.symbols` file.
 - **Non-Codemagic builds will fail at step 3.** If the Codemagic workflow didn't run for the version that crashed (e.g. it was a local `flutter build appbundle` upload), the API simply has nothing — bail and tell the user.
-- **The `--json` flag on `symbolize_flutter_anr.sh`** prints `{"frames", "resolved", "unresolved", "unresolved_nomatch", "unresolved_stripped", "system", "abi", "output"}` to stdout with all status logs on stderr — use this when chaining the symbolizer into another script. `unresolved` is the sum of `unresolved_nomatch` (BuildId not in archives → wrong build) and `unresolved_stripped` (BuildId matched but binary lacks debug info → typically `libflutter.so`).
+- **The `--json` flag on `symbolize_flutter_anr.sh`** prints `{"frames", "resolved", "unresolved", "unresolved_nomatch", "unresolved_stripped", "java_deobfuscated", "java_not_deobfuscated", "system", "abi", "output"}` to stdout with all status logs on stderr — use this when chaining the symbolizer into another script. `unresolved` is the sum of `unresolved_nomatch` (BuildId not in archives → wrong build) and `unresolved_stripped` (BuildId matched but binary lacks debug info → typically `libflutter.so`). `java_deobfuscated` + `java_not_deobfuscated` covers user-app Java frames; the latter splits semantically into "no `mapping.txt` provided" vs "class wasn't in `mapping.txt`" depending on whether the file was passed in.
 
 ## Quick reference
 
@@ -145,6 +153,7 @@ CACHE=$(jq -r .cacheDir /tmp/cm.json)
 bash scripts/symbolize_flutter_anr.sh \
   /tmp/play-stacktrace.log \
   "$CACHE/android_native_debug_symbols.zip" \
-  "$CACHE"/*_artifacts.zip
+  "$CACHE"/*_artifacts.zip \
+  "$CACHE/mapping.txt"        # omit if the build didn't run R8/ProGuard
 # → /tmp/play-stacktrace.symbolized.txt
 ```

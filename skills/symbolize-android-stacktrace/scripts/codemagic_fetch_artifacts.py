@@ -71,6 +71,10 @@ from typing import NoReturn
 API_BASE = "https://api.codemagic.io"
 NATIVE_SYMBOLS_NAME = "android_native_debug_symbols.zip"
 FLUTTER_ARTIFACTS_RE = re.compile(r"^.+_\d+_artifacts\.zip$")
+# Optional R8 mapping file — only present when minification is on. When
+# available, the symbolizer can deobfuscate user-app Java frames. Absent
+# is fine (apps without R8/Proguard).
+MAPPING_NAME = "mapping.txt"
 ROOT_CACHE_DIR = Path.home() / ".cache" / "codemagic-fetch-artifacts"
 DOWNLOADS_CACHE_DIR = ROOT_CACHE_DIR / "codemagic"
 APPS_CACHE_PATH = ROOT_CACHE_DIR / "codemagic-apps.json"
@@ -395,7 +399,12 @@ def download(url: str, dest: Path, expected_size: int | None) -> bool:
 def select_artifacts(build: dict) -> list[dict]:
     out = []
     for a in build.get("artefacts", []):
-        if a["name"] == NATIVE_SYMBOLS_NAME or FLUTTER_ARTIFACTS_RE.match(a["name"]):
+        name = a["name"]
+        if (
+            name == NATIVE_SYMBOLS_NAME
+            or name == MAPPING_NAME
+            or FLUTTER_ARTIFACTS_RE.match(name)
+        ):
             out.append(a)
     return out
 

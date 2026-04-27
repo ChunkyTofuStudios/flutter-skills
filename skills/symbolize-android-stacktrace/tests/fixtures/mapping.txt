@@ -1,0 +1,18 @@
+# Tiny R8 / ProGuard mapping file used by symbolize.bats and
+# test_deobfuscate_r8.py. Mirrors the real format: each block starts with
+# `<originalClass> -> <obfuscatedClass>:` followed by indented method/field
+# lines. Comments and blank lines are ignored.
+
+io.flutter.embedding.engine.FlutterJNI -> Ka.n:
+    1:1:void <init>():52:52 -> <init>
+    1:1:void onSurfaceDestroyed():123:123 -> l
+    void onSurfaceCreated(android.view.Surface) -> a
+    int someField -> f
+    int anotherField -> g
+
+io.flutter.embedding.engine.FlutterJNI$Inner -> Ka.n$a:
+    1:1:void surfaceDestroyed() -> surfaceDestroyed
+
+com.example.demo.MainActivity -> e8.a:
+    1:1:void onCreate(android.os.Bundle):34:34 -> a
+    1:1:void run():40:40 -> run

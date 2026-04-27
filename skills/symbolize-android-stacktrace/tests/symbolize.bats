@@ -103,6 +103,62 @@ teardown() { sym_teardown; }
   [ ! -f "$TEST_TMP/play-anr-trace.symbolized.txt" ]
 }
 
+@test "mapping.txt is detected as a separate input role" {
+  trace=$(stage_trace play-anr-trace-java.log)
+  run_sym "$trace" "$SYM_FIXTURES_DIR/symbols" "$SYM_FIXTURES_DIR/mapping.txt"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Detected R8 mapping"* ]]
+}
+
+@test "Java frames are deobfuscated via mapping.txt when class is mapped" {
+  trace=$(stage_trace play-anr-trace-java.log)
+  run_sym "$trace" "$SYM_FIXTURES_DIR/symbols" "$SYM_FIXTURES_DIR/mapping.txt"
+  [ "$status" -eq 0 ]
+
+  out="$TEST_TMP/play-anr-trace-java.symbolized.txt"
+  # Ka.n.l → io.flutter.embedding.engine.FlutterJNI.onSurfaceDestroyed.
+  # Both the base.apk frame and the /memfd:jit-cache frame share that ref.
+  [ "$(grep -c '\[JAVA: io\.flutter\.embedding\.engine\.FlutterJNI\.onSurfaceDestroyed\]' "$out")" -eq 2 ]
+  # com.notmapped.Class is absent from mapping.txt — labeled as such.
+  grep -q '\[JAVA: not in mapping.txt' "$out"
+}
+
+@test "Java frames without mapping.txt suggest passing one" {
+  trace=$(stage_trace play-anr-trace-java.log)
+  run_sym "$trace" "$SYM_FIXTURES_DIR/symbols"
+  [ "$status" -eq 0 ]
+
+  out="$TEST_TMP/play-anr-trace-java.symbolized.txt"
+  # All three Java frames (2× Ka.n.l, 1× com.notmapped.Class) get the hint.
+  [ "$(grep -c '\[JAVA: pass mapping.txt to deobfuscate\]' "$out")" -eq 3 ]
+  # No false-positive deobfuscations.
+  ! grep -q '\[JAVA: io\.flutter' "$out"
+}
+
+@test "/data/misc/apexdata/ frames are classified as system" {
+  trace=$(stage_trace play-anr-trace-java.log)
+  run_sym "$trace" "$SYM_FIXTURES_DIR/symbols" "$SYM_FIXTURES_DIR/mapping.txt"
+  [ "$status" -eq 0 ]
+
+  out="$TEST_TMP/play-anr-trace-java.symbolized.txt"
+  # The boot.oat frame should hit the path-based [SYSTEM:] (external),
+  # not the no-BuildId fallback wording.
+  grep -q 'boot.oat' "$out"
+  grep -q 'external/system library not shipped' "$out"
+}
+
+@test "summary breaks out Java deobfuscation counts when mapping.txt is provided" {
+  trace=$(stage_trace play-anr-trace-java.log)
+  run_sym "$trace" "$SYM_FIXTURES_DIR/symbols" "$SYM_FIXTURES_DIR/mapping.txt"
+  [ "$status" -eq 0 ]
+  # 2 frames deobfuscated (Ka.n.l × 2), 1 not in mapping (com.notmapped),
+  # 2 system (libc, boot.oat).
+  [[ "$output" == *"Java: 3"* ]]
+  [[ "$output" == *"deobfuscated via mapping.txt: 2"* ]]
+  [[ "$output" == *"not in mapping.txt: 1"* ]]
+  [[ "$output" == *"System / external: 2"* ]]
+}
+
 @test "fails fast if NDK is missing addr2line" {
   trace=$(stage_trace play-anr-trace.log)
   ANDROID_NDK_HOME="$TEST_TMP/nonexistent-ndk" run_sym "$trace" "$SYM_FIXTURES_DIR/symbols"

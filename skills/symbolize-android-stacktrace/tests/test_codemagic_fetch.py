@@ -40,6 +40,7 @@ def _build(build_id: str, version: str, finished_at: str = "2026-01-01T00:00:00Z
         "artefacts": [
             {"name": "android_native_debug_symbols.zip", "url": "u1", "size": 1},
             {"name": "Demo_42_artifacts.zip",            "url": "u2", "size": 2},
+            {"name": "mapping.txt",                      "url": "u3", "size": 3},
         ],
     }
 
@@ -159,18 +160,24 @@ class FindBuildTests(unittest.TestCase):
 
 
 class SelectArtifactsTests(unittest.TestCase):
-    def test_selects_native_zip_and_flutter_artifacts(self) -> None:
+    def test_selects_native_zip_flutter_artifacts_and_mapping(self) -> None:
         build = _build("b1", "1.0.0")
         artefacts = cm.select_artifacts(build)
         names = sorted(a["name"] for a in artefacts)
-        self.assertEqual(names, ["Demo_42_artifacts.zip", "android_native_debug_symbols.zip"])
+        self.assertEqual(
+            names,
+            ["Demo_42_artifacts.zip", "android_native_debug_symbols.zip", "mapping.txt"],
+        )
 
     def test_ignores_unrelated_artifacts(self) -> None:
         build = _build("b1", "1.0.0")
-        build["artefacts"].append({"name": "release-notes.txt", "url": "u3", "size": 99})
-        build["artefacts"].append({"name": "Demo.apk",          "url": "u4", "size": 99})
+        build["artefacts"].append({"name": "release-notes.txt", "url": "u4", "size": 99})
+        build["artefacts"].append({"name": "Demo.apk",          "url": "u5", "size": 99})
         names = sorted(a["name"] for a in cm.select_artifacts(build))
-        self.assertEqual(names, ["Demo_42_artifacts.zip", "android_native_debug_symbols.zip"])
+        self.assertEqual(
+            names,
+            ["Demo_42_artifacts.zip", "android_native_debug_symbols.zip", "mapping.txt"],
+        )
 
     def test_flutter_artifacts_regex_requires_trailing_underscore_n(self) -> None:
         build = _build("b1", "1.0.0")
@@ -179,6 +186,14 @@ class SelectArtifactsTests(unittest.TestCase):
             {"name": "Demo_v2_artifacts.zip",  "url": "u",  "size": 1},  # _v2 isn't a number
         ]
         self.assertEqual(cm.select_artifacts(build), [])
+
+    def test_mapping_txt_is_optional(self) -> None:
+        # Apps without R8/Proguard don't ship mapping.txt — selection should
+        # still pick up the symbol artefacts on its own.
+        build = _build("b1", "1.0.0")
+        build["artefacts"] = [a for a in build["artefacts"] if a["name"] != "mapping.txt"]
+        names = sorted(a["name"] for a in cm.select_artifacts(build))
+        self.assertEqual(names, ["Demo_42_artifacts.zip", "android_native_debug_symbols.zip"])
 
 
 class FmtDateTests(unittest.TestCase):
