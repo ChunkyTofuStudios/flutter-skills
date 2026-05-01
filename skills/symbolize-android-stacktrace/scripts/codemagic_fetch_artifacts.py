@@ -78,17 +78,21 @@ from pathlib import Path
 from typing import NoReturn
 
 API_BASE = "https://api.codemagic.io"
-# Hosts we are willing to issue authenticated requests to. The Codemagic API
-# returns artifact download URLs of the form
-#   https://api.codemagic.io/artifacts/<opaque>
-# (see https://docs.codemagic.io/rest-api/artifacts/), so the API host is the
-# only host we ever need to talk to. If Codemagic ever returns a different
-# CDN host (e.g. a pre-signed S3 URL via a 302), the download will fail with a
-# clear error rather than silently following the redirect — we'd rather break
-# loudly than have an attacker who managed to spoof the API response (or hijack
-# DNS for a redirect target) hand us an arbitrary URL with our auth token
-# attached. Add hosts here only after confirming they're served by Codemagic.
-ALLOWED_DOWNLOAD_HOSTS: frozenset[str] = frozenset({"api.codemagic.io"})
+# Hosts we are willing to fetch from, with optional path-prefix restrictions.
+# The Codemagic API itself responds at api.codemagic.io; artifact download
+# URLs returned by the API 302 to pre-signed Google Cloud Storage URLs in the
+# `codemagic-build-artifacts` bucket. We pin both the host and the bucket
+# path so a spoofed redirect can't point us at an arbitrary GCS object.
+# `()` for the path-prefix tuple means any path on that host is allowed.
+ALLOWED_DOWNLOAD_HOSTS: dict[str, tuple[str, ...]] = {
+    "api.codemagic.io": (),
+    "storage.googleapis.com": ("/codemagic-build-artifacts/",),
+}
+# Headers we strip when a redirect crosses to a different host. The Codemagic
+# auth token is meaningless to GCS (and to any third-party host) and we don't
+# want it leaving Codemagic's API surface even though the immediate redirect
+# target is also operated by Codemagic.
+SENSITIVE_HEADERS: frozenset[str] = frozenset({"x-auth-token"})
 NATIVE_SYMBOLS_NAME = "android_native_debug_symbols.zip"
 FLUTTER_ARTIFACTS_RE = re.compile(r"^.+_\d+_artifacts\.zip$")
 # Optional R8 mapping file — only present when minification is on. When
@@ -185,9 +189,8 @@ def _validate_url(url: str) -> None:
     """Reject URLs that aren't https + on the Codemagic allowlist.
 
     Called for the initial URL and again from the redirect handler on each
-    redirect, so an `api.codemagic.io` response that 302s to another host
-    fails fast instead of silently following the redirect (and leaking the
-    `x-auth-token` header to whoever owns the new host).
+    redirect, so an `api.codemagic.io` response that 302s to an unexpected
+    host fails fast instead of silently following the redirect.
     """
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https":
@@ -198,20 +201,37 @@ def _validate_url(url: str) -> None:
             f"Refusing URL outside Codemagic allowlist "
             f"({sorted(ALLOWED_DOWNLOAD_HOSTS)}): {url!r}"
         )
+    prefixes = ALLOWED_DOWNLOAD_HOSTS[host]
+    if prefixes and not any(parsed.path.startswith(p) for p in prefixes):
+        die(
+            f"Refusing URL: {host} requires path prefix in {list(prefixes)} "
+            f"but got {parsed.path!r}"
+        )
 
 
 class _AllowlistRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Re-validate the host on every redirect; reject cross-host hops.
+    """Re-validate the host on every redirect; strip auth on cross-host hops.
 
-    `urllib`'s default behaviour is to follow redirects without re-checking
-    where they land, and it does not strip arbitrary custom headers (including
-    our `x-auth-token`) when crossing origins. Allowing only same-allowlist
-    redirects keeps the auth token from leaving Codemagic infrastructure.
+    `urllib` follows redirects by default without re-checking where they
+    land, and it preserves arbitrary custom headers (including our
+    `x-auth-token`) across redirects. We re-validate against the allowlist
+    on each hop and strip the auth token when the host changes — Codemagic
+    redirects authenticated artifact URLs to pre-signed GCS URLs that don't
+    need the token, and we'd rather not hand it to anyone else.
     """
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
         _validate_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_req is None:
+            return None
+        old_host = (urllib.parse.urlparse(req.get_full_url()).hostname or "").lower()
+        new_host = (urllib.parse.urlparse(newurl).hostname or "").lower()
+        if old_host != new_host:
+            for h in list(new_req.headers):
+                if h.lower() in SENSITIVE_HEADERS:
+                    del new_req.headers[h]
+        return new_req
 
 
 @functools.lru_cache(maxsize=1)
