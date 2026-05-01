@@ -37,9 +37,41 @@ CLASS_HEADER_RE = re.compile(r"^([\w.$]+) -> ([\w.$]+):\s*$")
 # unambiguous ` -> ` separator and pick out the method name from the LHS.
 METHOD_LINE_RE = re.compile(r"^\s+(.+?)\s+->\s+([\w$<>]+)\s*$")
 
+# Defensive caps so a malicious or corrupt mapping.txt can't OOM the parser.
+# Real mapping files for very large Android apps top out around 100–200 MB and
+# have lines well under 1 KB; the limits below are an order of magnitude more
+# than that so legitimate inputs are never rejected. The file-size cap is the
+# load-bearing one — it bounds total memory the parser can consume. The
+# per-line cap is defence-in-depth: it skips pathological single lines (e.g.
+# a 1 GB blob with no newlines smuggled into a real-looking mapping) without
+# aborting the whole job.
+MAX_MAPPING_FILE_BYTES = 1 * 1024 * 1024 * 1024  # 1 GiB
+MAX_MAPPING_LINE_BYTES = 64 * 1024  # 64 KiB
+
 
 def parse_mapping(path: Path) -> dict[str, tuple[str, dict[str, str]]]:
-    """Parse `mapping.txt` into `{obf_class: (orig_class, {obf_method: orig_method})}`."""
+    """Parse `mapping.txt` into `{obf_class: (orig_class, {obf_method: orig_method})}`.
+
+    `mapping.txt` is treated as untrusted input — it's pulled from CI and the
+    user's build pipeline, but neither this script nor the caller validates
+    its provenance per byte. The parser is purely line-oriented, never evals,
+    execs, or imports based on its contents, and never feeds any field into
+    a filesystem path. Size limits guard against denial-of-service from a
+    pathologically large file.
+    """
+    try:
+        size = path.stat().st_size
+    except OSError as e:
+        print(f"cannot stat {path}: {e}", file=sys.stderr)
+        sys.exit(1)
+    if size > MAX_MAPPING_FILE_BYTES:
+        print(
+            f"mapping file too large ({size} bytes > "
+            f"{MAX_MAPPING_FILE_BYTES} byte cap)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     out: dict[str, tuple[str, dict[str, str]]] = {}
     cur_obf: str | None = None
     cur_orig: str | None = None
@@ -51,6 +83,10 @@ def parse_mapping(path: Path) -> dict[str, tuple[str, dict[str, str]]]:
 
     with path.open(encoding="utf-8", errors="replace") as f:
         for line in f:
+            if len(line) > MAX_MAPPING_LINE_BYTES:
+                # Skip pathological lines without aborting; legitimate mapping
+                # entries are well under this cap.
+                continue
             if not line.strip() or line.lstrip().startswith("#"):
                 continue
             if (m := CLASS_HEADER_RE.match(line)) is not None:

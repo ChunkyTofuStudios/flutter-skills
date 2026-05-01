@@ -67,6 +67,7 @@ import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import urllib.error
@@ -77,6 +78,17 @@ from pathlib import Path
 from typing import NoReturn
 
 API_BASE = "https://api.codemagic.io"
+# Hosts we are willing to issue authenticated requests to. The Codemagic API
+# returns artifact download URLs of the form
+#   https://api.codemagic.io/artifacts/<opaque>
+# (see https://docs.codemagic.io/rest-api/artifacts/), so the API host is the
+# only host we ever need to talk to. If Codemagic ever returns a different
+# CDN host (e.g. a pre-signed S3 URL via a 302), the download will fail with a
+# clear error rather than silently following the redirect — we'd rather break
+# loudly than have an attacker who managed to spoof the API response (or hijack
+# DNS for a redirect target) hand us an arbitrary URL with our auth token
+# attached. Add hosts here only after confirming they're served by Codemagic.
+ALLOWED_DOWNLOAD_HOSTS: frozenset[str] = frozenset({"api.codemagic.io"})
 NATIVE_SYMBOLS_NAME = "android_native_debug_symbols.zip"
 FLUTTER_ARTIFACTS_RE = re.compile(r"^.+_\d+_artifacts\.zip$")
 # Optional R8 mapping file — only present when minification is on. When
@@ -169,12 +181,56 @@ def _token() -> str:
     )
 
 
+def _validate_url(url: str) -> None:
+    """Reject URLs that aren't https + on the Codemagic allowlist.
+
+    Called for the initial URL and again from the redirect handler on each
+    redirect, so an `api.codemagic.io` response that 302s to another host
+    fails fast instead of silently following the redirect (and leaking the
+    `x-auth-token` header to whoever owns the new host).
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https":
+        die(f"Refusing non-https URL: {url!r}")
+    host = (parsed.hostname or "").lower()
+    if host not in ALLOWED_DOWNLOAD_HOSTS:
+        die(
+            f"Refusing URL outside Codemagic allowlist "
+            f"({sorted(ALLOWED_DOWNLOAD_HOSTS)}): {url!r}"
+        )
+
+
+class _AllowlistRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-validate the host on every redirect; reject cross-host hops.
+
+    `urllib`'s default behaviour is to follow redirects without re-checking
+    where they land, and it does not strip arbitrary custom headers (including
+    our `x-auth-token`) when crossing origins. Allowing only same-allowlist
+    redirects keeps the auth token from leaving Codemagic infrastructure.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        _validate_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+@functools.lru_cache(maxsize=1)
+def _opener() -> urllib.request.OpenerDirector:
+    """Build an opener that enforces TLS + the redirect allowlist."""
+    https_handler = urllib.request.HTTPSHandler(context=ssl.create_default_context())
+    return urllib.request.build_opener(https_handler, _AllowlistRedirectHandler())
+
+
+def _open(url: str, headers: dict[str, str]):
+    """Validate `url`, then open it via the hardened opener."""
+    _validate_url(url)
+    req = urllib.request.Request(url, headers=headers)
+    return _opener().open(req)
+
+
 def api_get(path: str) -> dict:
-    req = urllib.request.Request(
-        f"{API_BASE}{path}", headers={"x-auth-token": _token()}
-    )
     try:
-        with urllib.request.urlopen(req) as r:
+        with _open(f"{API_BASE}{path}", headers={"x-auth-token": _token()}) as r:
             return json.loads(r.read())
     except urllib.error.HTTPError as e:
         die(f"Codemagic API {e.code} on {path}: {e.read().decode(errors='replace')}")
@@ -427,8 +483,7 @@ def download(url: str, dest: Path, expected_size: int | None) -> bool:
 
     tmp = dest.with_suffix(dest.suffix + ".part")
     info(f"Downloading {dest.name} ...")
-    req = urllib.request.Request(url, headers={"x-auth-token": _token()})
-    with urllib.request.urlopen(req) as r, open(tmp, "wb") as f:
+    with _open(url, headers={"x-auth-token": _token()}) as r, open(tmp, "wb") as f:
         shutil.copyfileobj(r, f, length=1 << 20)
     tmp.replace(dest)
     info(f"  -> {dest} ({dest.stat().st_size:,} bytes)")

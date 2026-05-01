@@ -130,6 +130,14 @@ shell/platform/android/platform_view_android_jni_impl.cc:1234
 
 Frames the script couldn't resolve get `[UNRESOLVED]`. The summary at the end reports `Frames` and `Unresolved` counts.
 
+## Trust model
+
+The skill ingests files from outside the agent's process; the bar for handling them is "untrusted by default":
+
+- **Codemagic artifacts** come from the user's own authenticated CI build (resolved via their personal API token), not arbitrary third parties. Even so, `codemagic_fetch_artifacts.py` pins downloads to `https://api.codemagic.io` over TLS and re-validates the host on every redirect — a spoofed or hijacked redirect cannot exfiltrate the API token to another origin.
+- **`mapping.txt`** is parsed line-by-line by `deobfuscate_r8.py`. Contents are never `eval`/`exec`'d, never imported, and never used to build filesystem paths. File size and per-line caps protect against an oversized file OOM'ing the parser.
+- **Trace and `mapping.txt` fields** consumed by `symbolize_flutter_anr.sh` (binary paths, parenthesised method names) are only ever pattern-matched (`case`) or passed to `awk -v` as literal field values — never interpolated into a shell command, `eval`, or filesystem path.
+
 ## Gotchas
 
 - **Build IDs are the contract.** A symbol file matches a frame only if its `BuildId:` (from `llvm-readelf --notes`) equals the `BuildId:` in the trace line. Wrong version → no matches → every frame `[UNRESOLVED]`. The script's first warning when most frames fail is "wrong build artifacts (common)".
