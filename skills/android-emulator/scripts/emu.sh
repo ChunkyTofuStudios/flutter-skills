@@ -132,7 +132,9 @@ load_device_size() {
       | tr -d '\r' > "$SIZE_CACHE"
   fi
   read -r DEV_W DEV_H < "$SIZE_CACHE"
-  [ -n "${DEV_W:-}" ] && [ -n "${DEV_H:-}" ] || die "could not read device size (is the emulator booted?)"
+  if [ -z "${DEV_W:-}" ] || [ -z "${DEV_H:-}" ]; then
+    die "could not read device size (is the emulator booted?)"
+  fi
 }
 
 # Convert a screenshot-space coordinate (360-wide image) to device pixels.
