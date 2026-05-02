@@ -433,7 +433,7 @@ PY
       sleep 1
     done
     if grep -qE "Error|FAILURE|Gradle build failed" "$_wait_log" 2>/dev/null; then
-      grep -E "Error|FAILURE|Gradle build failed" "$_wait_log" 2>/dev/null | head -5 >&2
+      grep -m 5 -E "Error|FAILURE|Gradle build failed" "$_wait_log" >&2 || true
       exit 1
     fi
     echo "flutter run attached"

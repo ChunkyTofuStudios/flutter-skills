@@ -244,6 +244,10 @@ teardown() { emu_teardown; }
     /bin/sleep 0.1
   done
   assert_called "flutter run -d emulator-5554"
+  # run must write the device-stable pointer so wait-run can find the log.
+  pointer="$TEST_TMP/android-emu-current-emulator-5554"
+  [ -f "$pointer" ]
+  [[ "$(cat "$pointer")" == "$TEST_TMP/android-emu-flutter-bats.log" ]]
 }
 
 # --- input validation (defence-in-depth against arithmetic injection) -------
