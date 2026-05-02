@@ -197,9 +197,16 @@ cmd="${1:-help}"; [ "$#" -gt 0 ] && shift
 case "$cmd" in
   screenshot)
     adb -s "$DEVICE" exec-out screencap -p > "$SHOT_FULL"
-    sips --resampleWidth "$SHOT_WIDTH" \
-         -s format jpeg -s formatOptions "$SHOT_QUALITY" \
-         "$SHOT_FULL" --out "$SHOT" >/dev/null
+    if convert --version 2>/dev/null | grep -qi "imagemagick"; then
+      convert "$SHOT_FULL" -resize "${SHOT_WIDTH}x" \
+              -quality "$SHOT_QUALITY" "$SHOT"
+    elif command -v sips >/dev/null 2>&1; then
+      sips --resampleWidth "$SHOT_WIDTH" \
+           -s format jpeg -s formatOptions "$SHOT_QUALITY" \
+           "$SHOT_FULL" --out "$SHOT" >/dev/null
+    else
+      die "no image conversion tool found; install ImageMagick (apt install imagemagick / brew install imagemagick)"
+    fi
     echo "$SHOT"
     ;;
 
