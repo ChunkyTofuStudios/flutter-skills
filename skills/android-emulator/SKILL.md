@@ -128,9 +128,15 @@ Heuristic: after a tap, check `ui-list` first. Screenshot only if it doesn't ans
    import 'package:flutter/foundation.dart';
    import 'package:flutter/semantics.dart';
 
+   // Must be top-level (or otherwise long-lived). If the handle returned by
+   // ensureSemantics() is not retained, it is immediately garbage-collected
+   // and semantics stay disabled.
+   SemanticsHandle? _semanticsHandle;
+
    void main() {
+     WidgetsFlutterBinding.ensureInitialized();
      if (kDebugMode) {
-       SemanticsBinding.instance.ensureSemantics();
+       _semanticsHandle = SemanticsBinding.instance.ensureSemantics();
      }
      runApp(const MyApp());
    }
